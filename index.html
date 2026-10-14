@@ -80,48 +80,57 @@
   }
   button:hover { border-color: var(--accent); }
 
-  .layout {
-    display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start;
-    grid-template-areas: "main side" "sub side"; grid-template-rows: auto 1fr;
-  }
-  .main-area { grid-area: main; min-width: 0; }
-  .side { grid-area: side; }
-  .sub { grid-area: sub; }
+  /* 1画面目：左に図形、右に設定（スマホは図形を上に固定して設定をスクロール） */
+  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; align-items: start; }
+  .main-area { min-width: 0; }
+  .info { min-width: 0; margin-top: 12px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
   .main-card { padding: 8px; }
   canvas { display: block; width: 100%; border-radius: 8px; background: var(--canvas-bg); }
   #view { touch-action: none; cursor: grab; }
   #view.dragging { cursor: grabbing; }
-  .hint { color: var(--muted); font-size: 0.8rem; margin: 6px 4px 0; }
+  .status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 4px 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin-left: auto; }
 
-  .sub { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
-  .sub h2, .side h2 { font-size: 0.95rem; margin: 0 0 8px; }
-  .sub canvas { aspect-ratio: 1 / 1; }
+  .info { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .info h2, .side h2 { font-size: 0.95rem; margin: 0 0 8px; }
+  .info canvas { aspect-ratio: 1 / 1; }
 
-  .side { display: flex; flex-direction: column; gap: 16px; }
-  .ctrl { margin-bottom: 10px; }
-  .ctrl:last-child { margin-bottom: 0; }
-  .ctrl label { display: flex; justify-content: space-between; font-size: 0.88rem; }
+  .side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .side-head h2 { margin: 0; }
+  .side-head button { padding: 3px 10px; font-size: 0.8rem; }
+  .ctrl { margin-bottom: 4px; }
+  .ctrl label { display: flex; justify-content: space-between; font-size: 0.85rem; line-height: 1.4; }
   .ctrl output { font-variant-numeric: tabular-nums; color: var(--muted); }
-  input[type="range"] { width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
-  .check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 6px 0; cursor: pointer; }
-  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
-  .row-btn { display: flex; gap: 8px; margin-top: 10px; }
+  input[type="range"] { width: 100%; margin: 2px 0 4px; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 0.87rem; margin: 4px 0; cursor: pointer; }
+  .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  .group-label { font-size: 0.75rem; color: var(--muted); margin: 8px 0 2px; letter-spacing: 0.04em; }
+  .group-label:first-of-type { margin-top: 0; }
 
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 0.82rem; font-weight: 600; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; }
   #explain p { margin: 0 0 8px; font-size: 0.9rem; }
   #explain p:last-child { margin-bottom: 0; }
   .legend { list-style: none; padding: 0; margin: 8px 0 0; font-size: 0.85rem; }
   .legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
   .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; }
 
+  @media (max-width: 1100px) {
+    .info { grid-template-columns: 1fr 1fr; }
+    #explain { grid-column: 1 / -1; }
+  }
   @media (max-width: 880px) {
-    .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "side" "sub"; }
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+    .main-area {
+      position: sticky; top: 0; z-index: 2; margin: 0 -16px; padding: 8px 16px;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+    }
+    .hint { display: none; }
   }
   @media (max-width: 520px) {
     .wrap { padding: 12px 16px; }
-    .sub { grid-template-columns: 1fr; }
+    .info { grid-template-columns: 1fr; }
     header p { display: none; }
   }
 </style>
@@ -137,13 +146,36 @@
   </header>
 
   <div class="layout">
-    <div class="main-area">
-      <div class="card main-card">
-        <canvas id="view" aria-label="透視図"></canvas>
-        <p class="hint">図形の上でドラッグ：左右で「向き」、上下で「傾き」を変えられます。</p>
+    <div class="workspace">
+      <div class="main-area">
+        <div class="card main-card">
+          <canvas id="view" aria-label="透視図"></canvas>
+          <div class="status"><span id="summary" class="chips" aria-live="polite"></span><span class="hint">ドラッグ：左右で向き・上下で傾き</span></div>
+        </div>
+      </div>
+
+      <div class="side card">
+        <div class="side-head"><h2>設定</h2><button type="button" id="reset">初期値に戻す</button></div>
+        <div class="group-label">図形</div>
+        <div class="ctrl"><label for="n">角の数 <output id="n_o"></output></label><input type="range" id="n" min="3" max="12" step="1"></div>
+        <div class="ctrl"><label for="yaw">向き（回転） <output id="yaw_o"></output></label><input type="range" id="yaw" min="0" max="360" step="1"></div>
+        <div class="ctrl"><label for="tilt">傾き（床 → 壁） <output id="tilt_o"></output></label><input type="range" id="tilt" min="0" max="90" step="1"></div>
+        <div class="ctrl"><label for="size">大きさ（半径） <output id="size_o"></output></label><input type="range" id="size" min="0.3" max="3" step="0.05"></div>
+        <label class="check"><input type="checkbox" id="prism"> 立体にする（柱）</label>
+        <div class="ctrl" id="lenRow"><label for="len">柱の長さ <output id="len_o"></output></label><input type="range" id="len" min="0.1" max="4" step="0.05"></div>
+        <div class="group-label">位置とカメラ</div>
+        <div class="ctrl"><label for="eye">目の高さ（アイレベル） <output id="eye_o"></output></label><input type="range" id="eye" min="0" max="5" step="0.05"></div>
+        <div class="ctrl"><label for="h">図形の高さ（地面から） <output id="h_o"></output></label><input type="range" id="h" min="0" max="5" step="0.05"></div>
+        <div class="ctrl"><label for="dist">図形までの距離 <output id="dist_o"></output></label><input type="range" id="dist" min="1" max="20" step="0.1"></div>
+        <div class="ctrl"><label for="fov">画角 <output id="fov_o"></output></label><input type="range" id="fov" min="20" max="120" step="1"></div>
+        <div class="group-label">表示</div>
+        <label class="check"><input type="checkbox" id="guides"> 消失点への補助線</label>
+        <label class="check"><input type="checkbox" id="showOut"> 画面の外も表示する（縮小）</label>
       </div>
     </div>
-    <div class="sub">
+
+    <div class="info">
+      <div class="card" id="explain"></div>
       <div class="card">
         <h2>真上から見た図</h2>
         <canvas id="top" aria-label="真上から見た図"></canvas>
@@ -151,29 +183,6 @@
       <div class="card">
         <h2>実物の形</h2>
         <canvas id="shape" aria-label="実物の形"></canvas>
-      </div>
-    </div>
-
-    <div class="side">
-      <div class="card" id="explain" aria-live="polite"></div>
-
-      <div class="card">
-        <h2>設定</h2>
-        <div class="ctrl"><label for="n">角の数 <output id="n_o"></output></label><input type="range" id="n" min="3" max="12" step="1"></div>
-        <div class="ctrl"><label for="yaw">向き（回転） <output id="yaw_o"></output></label><input type="range" id="yaw" min="0" max="360" step="1"></div>
-        <div class="ctrl"><label for="tilt">傾き（床 → 壁） <output id="tilt_o"></output></label><input type="range" id="tilt" min="0" max="90" step="1"></div>
-        <div class="ctrl"><label for="eye">目の高さ（アイレベル） <output id="eye_o"></output></label><input type="range" id="eye" min="0" max="5" step="0.05"></div>
-        <div class="ctrl"><label for="h">図形の高さ（地面から） <output id="h_o"></output></label><input type="range" id="h" min="0" max="5" step="0.05"></div>
-        <div class="ctrl"><label for="dist">図形までの距離 <output id="dist_o"></output></label><input type="range" id="dist" min="1" max="20" step="0.1"></div>
-        <div class="ctrl"><label for="size">図形の大きさ（半径） <output id="size_o"></output></label><input type="range" id="size" min="0.3" max="3" step="0.05"></div>
-        <div class="ctrl"><label for="fov">画角 <output id="fov_o"></output></label><input type="range" id="fov" min="20" max="120" step="1"></div>
-
-        <label class="check"><input type="checkbox" id="prism"> 立体にする（柱）</label>
-        <div class="ctrl" id="lenRow"><label for="len">柱の長さ <output id="len_o"></output></label><input type="range" id="len" min="0.1" max="4" step="0.05"></div>
-        <label class="check"><input type="checkbox" id="guides"> 消失点への補助線を表示する</label>
-        <label class="check"><input type="checkbox" id="showOut"> 画面の外も表示する（縮小）</label>
-
-        <div class="row-btn"><button type="button" id="reset">初期値に戻す</button></div>
       </div>
     </div>
   </div>
@@ -322,8 +331,13 @@
     const dpr = window.devicePixelRatio || 1;
     const w = cv.clientWidth;
     let h = Math.round(w * aspect);
-    if (cv.id === 'view') h = Math.min(h, Math.round(window.innerHeight * 0.72));
-    h = Math.max(h, 200);
+    if (cv.id === 'view') {
+      // keep the drawing and the settings on one screen
+      h = window.innerWidth <= 880
+        ? Math.min(Math.round(w * 0.8), Math.round(window.innerHeight * 0.42))
+        : Math.min(h, window.innerHeight - 150);
+    }
+    h = Math.max(h, 180);
     cv.style.height = h + 'px';
     if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
       cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -372,7 +386,7 @@
   let lastInfo = null;
 
   function drawView(scene) {
-    const { ctx, W, H } = setupCanvas(view, view.clientWidth < 600 ? 0.95 : 0.62);
+    const { ctx, W, H } = setupCanvas(view, 0.62);
     const cx = W / 2, cyy = H / 2;
     const f = (W / 2) / Math.tan(state.fov * DEG / 2);
     const eye = state.eye;
@@ -725,8 +739,9 @@
       return `<li>${sw}<span>${what} ${cnt} 本：${where}</span></li>`;
     }).join('');
 
+    $('summary').innerHTML = chips.join('');
     $('explain').innerHTML =
-      `<h2>見え方</h2><div class="chips">${chips.join('')}</div>` +
+      `<h2>見え方の説明</h2>` +
       `<p>${lookText}</p><p>${vpText}</p><ul class="legend">${legend}</ul>`;
   }
 
