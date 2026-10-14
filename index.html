@@ -91,7 +91,7 @@
   #view.dragging { cursor: grabbing; }
   .status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 4px 0; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .hint { color: var(--muted); font-size: 0.78rem; margin-left: auto; }
+  .hint { color: var(--muted); font-size: 0.78rem; }
 
   .info { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .info h2, .side h2 { font-size: 0.95rem; margin: 0 0 8px; }
@@ -108,6 +108,8 @@
   .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
   .group-label { font-size: 0.75rem; color: var(--muted); margin: 8px 0 2px; letter-spacing: 0.04em; }
   .group-label:first-of-type { margin-top: 0; }
+  .presets { display: flex; gap: 4px; margin-left: auto; }
+  .presets button { padding: 2px 10px; font-size: 0.78rem; border-radius: 999px; }
 
   .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; }
   #explain p { margin: 0 0 8px; font-size: 0.9rem; }
@@ -150,7 +152,7 @@
       <div class="main-area">
         <div class="card main-card">
           <canvas id="view" aria-label="透視図"></canvas>
-          <div class="status"><span id="summary" class="chips" aria-live="polite"></span><span class="hint">ドラッグ：左右で向き・上下で傾き</span></div>
+          <div class="status"><span id="summary" class="chips" aria-live="polite"></span><span class="presets" role="group" aria-label="例を見る"><button type="button" data-preset="1">一点透視</button><button type="button" data-preset="2">二点透視</button><button type="button" data-preset="3">三点透視</button></span><span class="hint">ドラッグで回転</span></div>
         </div>
       </div>
 
@@ -168,6 +170,7 @@
         <div class="ctrl"><label for="h">図形の高さ（地面から） <output id="h_o"></output></label><input type="range" id="h" min="0" max="5" step="0.05"></div>
         <div class="ctrl"><label for="dist">図形までの距離 <output id="dist_o"></output></label><input type="range" id="dist" min="1" max="20" step="0.1"></div>
         <div class="ctrl"><label for="fov">画角 <output id="fov_o"></output></label><input type="range" id="fov" min="20" max="120" step="1"></div>
+        <div class="ctrl"><label for="pitch">カメラの上下の向き <output id="pitch_o"></output></label><input type="range" id="pitch" min="-60" max="60" step="1"></div>
         <div class="group-label">表示</div>
         <label class="check"><input type="checkbox" id="guides"> 消失点への補助線</label>
         <label class="check"><input type="checkbox" id="showOut"> 画面の外も表示する（縮小）</label>
@@ -192,14 +195,15 @@
 (() => {
   const DEG = Math.PI / 180;
   const NEAR = 0.05;
-  const DEFAULTS = { n: 4, yaw: 30, tilt: 0, eye: 1.5, h: 0, dist: 7, size: 1, fov: 60, prism: false, len: 1, guides: true, showOut: false };
+  const DEFAULTS = { n: 4, yaw: 30, tilt: 0, eye: 1.5, h: 0, dist: 7, size: 1, fov: 60, pitch: 0, prism: false, len: 1, guides: true, showOut: false };
   const state = { ...DEFAULTS };
 
   const fmt = {
     n: v => v + '角形', yaw: v => v + '°', tilt: v => v + '°',
     eye: v => (+v).toFixed(2) + ' m', h: v => (+v).toFixed(2) + ' m',
     dist: v => (+v).toFixed(1) + ' m', size: v => (+v).toFixed(2) + ' m',
-    fov: v => v + '°', len: v => (+v).toFixed(2) + ' m'
+    fov: v => v + '°', len: v => (+v).toFixed(2) + ' m',
+    pitch: v => (v > 0 ? '+' : '') + v + '°' + (v > 0 ? '（見上げ）' : v < 0 ? '（見下ろし）' : '（水平）')
   };
   const ranges = Object.keys(fmt);
   const checks = ['prism', 'guides', 'showOut'];
@@ -217,6 +221,16 @@
     $(k).addEventListener('change', e => { state[k] = e.target.checked; syncControls(); draw(); });
   }
   $('reset').addEventListener('click', () => { Object.assign(state, DEFAULTS); syncControls(); draw(); });
+  // typical setups for a square box: 1-, 2- and 3-point perspective
+  const PRESETS = {
+    1: { n: 4, prism: true, yaw: 0, tilt: 0, pitch: 0, eye: 1.5, h: 0, dist: 7, size: 1, len: 1, fov: 60 },
+    2: { n: 4, prism: true, yaw: 30, tilt: 0, pitch: 0, eye: 1.5, h: 0, dist: 7, size: 1, len: 1, fov: 60 },
+    3: { n: 4, prism: true, yaw: 30, tilt: 0, pitch: 18, eye: 1.5, h: 0, dist: 10, size: 1.5, len: 6, fov: 90 }
+  };
+  document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => {
+    Object.assign(state, PRESETS[btn.dataset.preset]);
+    syncControls(); draw();
+  }));
 
   // ---------- theme ----------
   const themeLabels = { auto: '配色: 自動', light: '配色: ライト', dark: '配色: ダーク' };
@@ -390,14 +404,18 @@
     const cx = W / 2, cyy = H / 2;
     const f = (W / 2) / Math.tan(state.fov * DEG / 2);
     const eye = state.eye;
-    const toCam = p => [p[0], p[1] - eye, p[2]];
+    // camera turned up (+) or down (-) by pitch; rotate world vectors into camera space
+    const cp = Math.cos(state.pitch * DEG), sp = Math.sin(state.pitch * DEG);
+    const rotCam = v => [v[0], v[1] * cp - v[2] * sp, v[1] * sp + v[2] * cp];
+    const toCam = p => rotCam([p[0], p[1] - eye, p[2]]);
+    const horizonY = cyy + f * sp / cp; // where horizontal lines vanish
     const proj = c => [cx + f * c[0] / c[2], cyy - f * c[1] / c[2]];
 
     // vanishing points in picture coordinates
     for (const g of scene.groups) {
-      const d = g.dir;
+      const d = rotCam(g.dir);
       g.vp = Math.abs(d[2]) < 1e-6 ? null : [cx + f * d[0] / d[2], cyy - f * d[1] / d[2]];
-      g.onHorizon = g.vp && Math.abs(d[1]) < 1e-6;
+      g.onHorizon = g.vp && Math.abs(g.dir[1]) < 1e-6;
     }
     const vpGroups = scene.groups.filter(g => g.vp);
 
@@ -412,6 +430,7 @@
     if (state.showOut) {
       const mx = W / 2 - 28, my = H / 2 - 24;
       const pts = vpGroups.map(g => g.vp);
+      pts.push([cx, horizonY]);
       projEdges.forEach(pe => { if (pe) pts.push(pe[0], pe[1]); });
       for (const p of pts) {
         const dx = Math.abs(p[0] - cx), dy = Math.abs(p[1] - cyy);
@@ -423,8 +442,10 @@
     const S = p => [cx + s * (p[0] - cx), cyy + s * (p[1] - cyy)];
 
     // background: ground below the horizon
+    const hy = S([cx, horizonY])[1];
+    const groundTop = Math.min(Math.max(hy, 0), H);
     ctx.fillStyle = css('--ground');
-    ctx.fillRect(0, cyy, W, H - cyy);
+    ctx.fillRect(0, groundTop, W, H - groundTop);
 
     // picture frame when zoomed out
     if (s < 0.999) {
@@ -442,7 +463,7 @@
     }
 
     // vanishing line of a tilted plane
-    const N = scene.normal;
+    const N = rotCam(scene.normal);
     if (state.tilt > 0.5) {
       const A = N[0], Bc = -N[1], C = N[2] * f;
       const l2 = A * A + Bc * Bc;
@@ -463,14 +484,17 @@
     }
 
     // horizon / eye level
-    const hy = cyy;
     ctx.save();
-    ctx.strokeStyle = css('--horizon');
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
     ctx.fillStyle = css('--horizon');
     ctx.font = '600 12px system-ui, sans-serif';
-    ctx.fillText('アイレベル（地平線）', 8, hy + 16);
+    if (hy >= 0 && hy <= H) {
+      ctx.strokeStyle = css('--horizon');
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
+      ctx.fillText('アイレベル（地平線）', 8, hy + 16 < H ? hy + 16 : hy - 6);
+    } else {
+      ctx.fillText(hy < 0 ? '↑ アイレベル（地平線）は画面の上の外' : '↓ アイレベル（地平線）は画面の下の外', 8, hy < 0 ? 16 : H - 8);
+    }
     ctx.restore();
 
     const gCount = scene.groups.length;
@@ -701,6 +725,12 @@
       look = '真横';
       lookText = 'アイレベル（地平線）が図形を横切っています。<b>真横の高さ</b>から見ているので、地平線より上の部分は見上げ、下の部分は見下ろす形になります。';
     }
+    if (state.pitch !== 0) {
+      const up = state.pitch > 0;
+      lookText += ` カメラを${Math.abs(state.pitch)}°${up ? '上に向けて（見上げて）' : '下に向けて（見下ろして）'}いるので、地平線は画面の${up ? '下' : '上'}の方に移り、垂直な線は${up ? '上' : '下'}の消失点に集まります。`;
+    } else if (state.prism && state.tilt < 0.5) {
+      lookText += ' カメラが水平なので、柱の垂直な線は平行のまま描きます。「カメラの上下の向き」を変えると垂直な線にも消失点ができます（三点透視）。';
+    }
     if (lyingFlat && look !== '真横') {
       lookText += ' 目の高さと図形の高さの差が大きいほど、形は広く（つぶれずに）見えます。';
     }
@@ -731,7 +761,8 @@
 
     const legend = groups.map(g => {
       const sw = `<span class="sw" style="background:${groupColor(g.id, groups.length, 1)}"></span>`;
-      const what = g.hasSide ? '柱の縦の辺' : '辺';
+      const vertical = Math.abs(Math.abs(g.dir[1]) - 1) < 1e-6;
+      const what = g.hasSide ? (vertical ? '柱の垂直な辺' : '柱の縦の辺') : '辺';
       const cnt = g.edges.length;
       let where;
       if (!g.vp) where = '画面と平行 → 消失点なし';
