@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>パース練習ラボ</title>
+<meta name="description" content="正多角形や角柱を3D空間に置き、透視投影と消失点を確かめられる遠近法の練習用アプリ">
+<style>
+  :root {
+    --bg: #f5f5f2;
+    --panel: #ffffff;
+    --fg: #1d1d1f;
+    --muted: #63636b;
+    --border: #dcdcd6;
+    --accent: #2f6fd6;
+    --canvas-bg: #fbfbf8;
+    --ground: rgba(120, 110, 90, 0.07);
+    --grid: rgba(0, 0, 0, 0.07);
+    --horizon: #c2410c;
+    --face: rgba(47, 111, 214, 0.10);
+    --face-top: rgba(47, 111, 214, 0.18);
+    --frame: rgba(0, 0, 0, 0.45);
+    --chip: #eef1f7;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141416;
+      --panel: #1d1d21;
+      --fg: #ececf0;
+      --muted: #9a9aa6;
+      --border: #34343b;
+      --accent: #6ea2ff;
+      --canvas-bg: #18181b;
+      --ground: rgba(200, 190, 160, 0.05);
+      --grid: rgba(255, 255, 255, 0.07);
+      --horizon: #fb923c;
+      --face: rgba(110, 162, 255, 0.12);
+      --face-top: rgba(110, 162, 255, 0.22);
+      --frame: rgba(255, 255, 255, 0.5);
+      --chip: #272a33;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141416;
+    --panel: #1d1d21;
+    --fg: #ececf0;
+    --muted: #9a9aa6;
+    --border: #34343b;
+    --accent: #6ea2ff;
+    --canvas-bg: #18181b;
+    --ground: rgba(200, 190, 160, 0.05);
+    --grid: rgba(255, 255, 255, 0.07);
+    --horizon: #fb923c;
+    --face: rgba(110, 162, 255, 0.12);
+    --face-top: rgba(110, 162, 255, 0.22);
+    --frame: rgba(255, 255, 255, 0.5);
+    --chip: #272a33;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  h1 { font-size: 1.25rem; margin: 0; letter-spacing: 0.02em; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
+  button {
+    font: inherit; font-size: 0.85rem; color: var(--fg);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+
+  .layout {
+    display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start;
+    grid-template-areas: "main side" "sub side"; grid-template-rows: auto 1fr;
+  }
+  .main-area { grid-area: main; min-width: 0; }
+  .side { grid-area: side; }
+  .sub { grid-area: sub; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .main-card { padding: 8px; }
+  canvas { display: block; width: 100%; border-radius: 8px; background: var(--canvas-bg); }
+  #view { touch-action: none; cursor: grab; }
+  #view.dragging { cursor: grabbing; }
+  .hint { color: var(--muted); font-size: 0.8rem; margin: 6px 4px 0; }
+
+  .sub { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
+  .sub h2, .side h2 { font-size: 0.95rem; margin: 0 0 8px; }
+  .sub canvas { aspect-ratio: 1 / 1; }
+
+  .side { display: flex; flex-direction: column; gap: 16px; }
+  .ctrl { margin-bottom: 10px; }
+  .ctrl:last-child { margin-bottom: 0; }
+  .ctrl label { display: flex; justify-content: space-between; font-size: 0.88rem; }
+  .ctrl output { font-variant-numeric: tabular-nums; color: var(--muted); }
+  input[type="range"] { width: 100%; margin: 4px 0 0; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; margin: 6px 0; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .row-btn { display: flex; gap: 8px; margin-top: 10px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 0.82rem; font-weight: 600; }
+  #explain p { margin: 0 0 8px; font-size: 0.9rem; }
+  #explain p:last-child { margin-bottom: 0; }
+  .legend { list-style: none; padding: 0; margin: 8px 0 0; font-size: 0.85rem; }
+  .legend li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+
+  @media (max-width: 880px) {
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "side" "sub"; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 12px 16px; }
+    .sub { grid-template-columns: 1fr; }
+    header p { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>パース練習ラボ</h1>
+      <p>正多角形を3D空間に置いて、透視図と消失点の関係を確かめよう</p>
+    </div>
+    <button id="themeBtn" type="button" aria-label="配色を切り替え">配色: 自動</button>
+  </header>
+
+  <div class="layout">
+    <div class="main-area">
+      <div class="card main-card">
+        <canvas id="view" aria-label="透視図"></canvas>
+        <p class="hint">図形の上でドラッグ：左右で「向き」、上下で「傾き」を変えられます。</p>
+      </div>
+    </div>
+    <div class="sub">
+      <div class="card">
+        <h2>真上から見た図</h2>
+        <canvas id="top" aria-label="真上から見た図"></canvas>
+      </div>
+      <div class="card">
+        <h2>実物の形</h2>
+        <canvas id="shape" aria-label="実物の形"></canvas>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card" id="explain" aria-live="polite"></div>
+
+      <div class="card">
+        <h2>設定</h2>
+        <div class="ctrl"><label for="n">角の数 <output id="n_o"></output></label><input type="range" id="n" min="3" max="12" step="1"></div>
+        <div class="ctrl"><label for="yaw">向き（回転） <output id="yaw_o"></output></label><input type="range" id="yaw" min="0" max="360" step="1"></div>
+        <div class="ctrl"><label for="tilt">傾き（床 → 壁） <output id="tilt_o"></output></label><input type="range" id="tilt" min="0" max="90" step="1"></div>
+        <div class="ctrl"><label for="eye">目の高さ（アイレベル） <output id="eye_o"></output></label><input type="range" id="eye" min="0" max="5" step="0.05"></div>
+        <div class="ctrl"><label for="h">図形の高さ（地面から） <output id="h_o"></output></label><input type="range" id="h" min="0" max="5" step="0.05"></div>
+        <div class="ctrl"><label for="dist">図形までの距離 <output id="dist_o"></output></label><input type="range" id="dist" min="1" max="20" step="0.1"></div>
+        <div class="ctrl"><label for="size">図形の大きさ（半径） <output id="size_o"></output></label><input type="range" id="size" min="0.3" max="3" step="0.05"></div>
+        <div class="ctrl"><label for="fov">画角 <output id="fov_o"></output></label><input type="range" id="fov" min="20" max="120" step="1"></div>
+
+        <label class="check"><input type="checkbox" id="prism"> 立体にする（柱）</label>
+        <div class="ctrl" id="lenRow"><label for="len">柱の長さ <output id="len_o"></output></label><input type="range" id="len" min="0.1" max="4" step="0.05"></div>
+        <label class="check"><input type="checkbox" id="guides"> 消失点への補助線を表示する</label>
+        <label class="check"><input type="checkbox" id="showOut"> 画面の外も表示する（縮小）</label>
+
+        <div class="row-btn"><button type="button" id="reset">初期値に戻す</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const DEG = Math.PI / 180;
+  const NEAR = 0.05;
+  const DEFAULTS = { n: 4, yaw: 30, tilt: 0, eye: 1.5, h: 0, dist: 7, size: 1, fov: 60, prism: false, len: 1, guides: true, showOut: false };
+  const state = { ...DEFAULTS };
+
+  const fmt = {
+    n: v => v + '角形', yaw: v => v + '°', tilt: v => v + '°',
+    eye: v => (+v).toFixed(2) + ' m', h: v => (+v).toFixed(2) + ' m',
+    dist: v => (+v).toFixed(1) + ' m', size: v => (+v).toFixed(2) + ' m',
+    fov: v => v + '°', len: v => (+v).toFixed(2) + ' m'
+  };
+  const ranges = Object.keys(fmt);
+  const checks = ['prism', 'guides', 'showOut'];
+  const $ = id => document.getElementById(id);
+
+  function syncControls() {
+    for (const k of ranges) { $(k).value = state[k]; $(k + '_o').textContent = fmt[k](state[k]); }
+    for (const k of checks) $(k).checked = state[k];
+    $('lenRow').style.display = state.prism ? '' : 'none';
+  }
+  for (const k of ranges) {
+    $(k).addEventListener('input', e => { state[k] = +e.target.value; $(k + '_o').textContent = fmt[k](state[k]); draw(); });
+  }
+  for (const k of checks) {
+    $(k).addEventListener('change', e => { state[k] = e.target.checked; syncControls(); draw(); });
+  }
+  $('reset').addEventListener('click', () => { Object.assign(state, DEFAULTS); syncControls(); draw(); });
+
+  // ---------- theme ----------
+  const themeLabels = { auto: '配色: 自動', light: '配色: ライト', dark: '配色: ダーク' };
+  let themeMode = 'auto';
+  try { themeMode = localStorage.getItem('perspective-theme') || 'auto'; } catch (e) {}
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function applyTheme() {
+    if (themeMode === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', themeMode);
+    $('themeBtn').textContent = themeLabels[themeMode];
+  }
+  $('themeBtn').addEventListener('click', () => {
+    themeMode = themeMode === 'auto' ? 'light' : themeMode === 'light' ? 'dark' : 'auto';
+    try { localStorage.setItem('perspective-theme', themeMode); } catch (e) {}
+    applyTheme(); draw();
+  });
+  mq.addEventListener('change', () => draw());
+  function isDark() { return themeMode === 'dark' || (themeMode === 'auto' && mq.matches); }
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function groupColor(i, count, alpha = 1) {
+    const hue = (i * 360 / Math.max(count, 1) + 8) % 360;
+    const l = isDark() ? 64 : 44;
+    return `hsla(${hue.toFixed(0)}, 78%, ${l}%, ${alpha})`;
+  }
+
+  // ---------- vector helpers ----------
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const len3 = a => Math.hypot(a[0], a[1], a[2]);
+  const norm = a => mul(a, 1 / len3(a));
+
+  // ---------- scene (world: X right, Y up, Z forward; camera at (0, eye, 0) looking +Z, level) ----------
+  function buildScene(s) {
+    const n = s.n, R = s.size, yaw = s.yaw * DEG, tilt = s.tilt * DEG;
+    const ct = Math.cos(tilt), st = Math.sin(tilt), cy = Math.cos(yaw), sy = Math.sin(yaw);
+    // local polygon lies in the xz plane; tilt about X, then turn about Y
+    const rot = ([x, y, z]) => {
+      const y1 = y * ct + z * st, z1 = -y * st + z * ct;
+      return [x * cy + z1 * sy, y1, -x * sy + z1 * cy];
+    };
+    const base = [];
+    for (let i = 0; i < n; i++) {
+      const th = 2 * Math.PI * i / n + Math.PI / n - Math.PI / 2; // front edge parallel to X at yaw 0
+      base.push(rot([R * Math.cos(th), 0, R * Math.sin(th)]));
+    }
+    const normal = rot([0, 1, 0]);
+    const top = s.prism ? base.map(p => add(p, mul(normal, s.len))) : null;
+
+    // place: lowest point at height h, centre of the base at depth dist
+    const all = top ? base.concat(top) : base;
+    const minY = Math.min(...all.map(p => p[1]));
+    const offset = [0, s.h - minY, s.dist];
+    const B = base.map(p => add(p, offset));
+    const T = top ? top.map(p => add(p, offset)) : null;
+    const center = add([0, 0, 0], offset);
+    const cam = [0, s.eye, 0];
+
+    // faces with outward normals (for hidden-line removal on the prism)
+    const faces = [];
+    if (T) {
+      faces.push({ pts: B.slice().reverse(), n: mul(normal, -1), kind: 'cap' });
+      faces.push({ pts: T.slice(), n: normal, kind: 'cap' });
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const mid = mul(add(B[i], B[j]), 0.5);
+        faces.push({ pts: [B[i], B[j], T[j], T[i]], n: norm(sub(mid, center)), kind: 'side' });
+      }
+      for (const f of faces) f.visible = dot(f.n, sub(cam, f.pts[0])) > 1e-9;
+    } else {
+      faces.push({ pts: B.slice(), n: normal, kind: 'cap', visible: true });
+    }
+
+    const edges = [];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      if (T) {
+        edges.push({ a: B[i], b: B[j], kind: 'base', idx: i, visible: faces[0].visible || faces[2 + i].visible });
+        edges.push({ a: T[i], b: T[j], kind: 'top', idx: i, visible: faces[1].visible || faces[2 + i].visible });
+        edges.push({ a: B[i], b: T[i], kind: 'side', idx: i, visible: faces[2 + i].visible || faces[2 + (i + n - 1) % n].visible });
+      } else {
+        edges.push({ a: B[i], b: B[j], kind: 'base', idx: i, visible: true });
+      }
+    }
+
+    // group parallel edges
+    const groups = [];
+    for (const e of edges) {
+      const d = norm(sub(e.b, e.a));
+      let g = groups.find(g => Math.abs(dot(g.dir, d)) > 0.99999);
+      if (!g) {
+        // canonical sign: point away from the viewer when possible
+        let dir = d;
+        if (dir[2] < -1e-9 || (Math.abs(dir[2]) <= 1e-9 && (dir[0] < -1e-9 || (Math.abs(dir[0]) <= 1e-9 && dir[1] < 0)))) dir = mul(dir, -1);
+        g = { dir, edges: [] };
+        groups.push(g);
+      }
+      e.group = g;
+      g.edges.push(e);
+    }
+    // order: groups with a vanishing point first, sides last
+    groups.forEach(g => { g.hasSide = g.edges.some(e => e.kind === 'side'); });
+    groups.sort((a, b) => (a.hasSide - b.hasSide));
+    groups.forEach((g, i) => { g.id = i; });
+
+    return { B, T, faces, edges, groups, normal, cam, center, minY: Math.min(...(T ? B.concat(T) : B).map(p => p[1])), maxY: Math.max(...(T ? B.concat(T) : B).map(p => p[1])) };
+  }
+
+  // ---------- canvas helpers ----------
+  function setupCanvas(cv, aspect) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth;
+    let h = Math.round(w * aspect);
+    if (cv.id === 'view') h = Math.min(h, Math.round(window.innerHeight * 0.72));
+    h = Math.max(h, 200);
+    cv.style.height = h + 'px';
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, W: w, H: h };
+  }
+
+  // Liang–Barsky clip of segment p→q to a rectangle
+  function clipLine(p, q, x0, y0, x1, y1) {
+    let t0 = 0, t1 = 1;
+    const dx = q[0] - p[0], dy = q[1] - p[1];
+    const P = [-dx, dx, -dy, dy], Q = [p[0] - x0, x1 - p[0], p[1] - y0, y1 - p[1]];
+    for (let i = 0; i < 4; i++) {
+      if (P[i] === 0) { if (Q[i] < 0) return null; continue; }
+      const r = Q[i] / P[i];
+      if (P[i] < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+      else { if (r < t0) return null; if (r < t1) t1 = r; }
+    }
+    return [[p[0] + t0 * dx, p[1] + t0 * dy], [p[0] + t1 * dx, p[1] + t1 * dy]];
+  }
+
+  // clip a 3D segment (camera space) at the near plane
+  function clipSeg(a, b) {
+    if (a[2] < NEAR && b[2] < NEAR) return null;
+    if (a[2] >= NEAR && b[2] >= NEAR) return [a, b];
+    const t = (NEAR - a[2]) / (b[2] - a[2]);
+    const m = add(a, mul(sub(b, a), t));
+    return a[2] < NEAR ? [m, b] : [a, m];
+  }
+  function clipPoly(pts) {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ina = a[2] >= NEAR, inb = b[2] >= NEAR;
+      if (ina) out.push(a);
+      if (ina !== inb) out.push(add(a, mul(sub(b, a), (NEAR - a[2]) / (b[2] - a[2]))));
+    }
+    return out;
+  }
+
+  // ---------- main perspective view ----------
+  const view = $('view');
+  let lastInfo = null;
+
+  function drawView(scene) {
+    const { ctx, W, H } = setupCanvas(view, view.clientWidth < 600 ? 0.95 : 0.62);
+    const cx = W / 2, cyy = H / 2;
+    const f = (W / 2) / Math.tan(state.fov * DEG / 2);
+    const eye = state.eye;
+    const toCam = p => [p[0], p[1] - eye, p[2]];
+    const proj = c => [cx + f * c[0] / c[2], cyy - f * c[1] / c[2]];
+
+    // vanishing points in picture coordinates
+    for (const g of scene.groups) {
+      const d = g.dir;
+      g.vp = Math.abs(d[2]) < 1e-6 ? null : [cx + f * d[0] / d[2], cyy - f * d[1] / d[2]];
+      g.onHorizon = g.vp && Math.abs(d[1]) < 1e-6;
+    }
+    const vpGroups = scene.groups.filter(g => g.vp);
+
+    // projected shape points (for fitting)
+    const projEdges = scene.edges.map(e => {
+      const c = clipSeg(toCam(e.a), toCam(e.b));
+      return c ? [proj(c[0]), proj(c[1])] : null;
+    });
+
+    // zoom-out so that off-screen vanishing points fit
+    let s = 1;
+    if (state.showOut) {
+      const mx = W / 2 - 28, my = H / 2 - 24;
+      const pts = vpGroups.map(g => g.vp);
+      projEdges.forEach(pe => { if (pe) pts.push(pe[0], pe[1]); });
+      for (const p of pts) {
+        const dx = Math.abs(p[0] - cx), dy = Math.abs(p[1] - cyy);
+        if (dx > 1e-9) s = Math.min(s, mx / dx);
+        if (dy > 1e-9) s = Math.min(s, my / dy);
+      }
+      s = Math.max(s, 0.03);
+    }
+    const S = p => [cx + s * (p[0] - cx), cyy + s * (p[1] - cyy)];
+
+    // background: ground below the horizon
+    ctx.fillStyle = css('--ground');
+    ctx.fillRect(0, cyy, W, H - cyy);
+
+    // picture frame when zoomed out
+    if (s < 0.999) {
+      const a = S([0, 0]), b = S([W, H]);
+      ctx.save();
+      ctx.strokeStyle = css('--frame');
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+      ctx.setLineDash([]);
+      ctx.fillStyle = css('--frame');
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillText('元の画面', a[0] + 4, a[1] - 4 > 10 ? a[1] - 4 : a[1] + 12);
+      ctx.restore();
+    }
+
+    // vanishing line of a tilted plane
+    const N = scene.normal;
+    if (state.tilt > 0.5) {
+      const A = N[0], Bc = -N[1], C = N[2] * f;
+      const l2 = A * A + Bc * Bc;
+      if (l2 > 1e-10) {
+        const p0 = [-C * A / l2, -C * Bc / l2], dir = [-Bc, A];
+        const P1 = S([cx + p0[0] + dir[0] * 1e7, cyy + p0[1] + dir[1] * 1e7]);
+        const P2 = S([cx + p0[0] - dir[0] * 1e7, cyy + p0[1] - dir[1] * 1e7]);
+        const c = clipLine(P1, P2, -5, -5, W + 5, H + 5);
+        if (c) {
+          ctx.save();
+          ctx.strokeStyle = css('--muted');
+          ctx.setLineDash([2, 5]);
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(...c[0]); ctx.lineTo(...c[1]); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    // horizon / eye level
+    const hy = cyy;
+    ctx.save();
+    ctx.strokeStyle = css('--horizon');
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
+    ctx.fillStyle = css('--horizon');
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillText('アイレベル（地平線）', 8, hy + 16);
+    ctx.restore();
+
+    const gCount = scene.groups.length;
+
+    // guide lines
+    if (state.guides) {
+      ctx.save();
+      ctx.lineWidth = 1;
+      for (const g of scene.groups) {
+        ctx.strokeStyle = groupColor(g.id, gCount, 0.45);
+        for (const e of g.edges) {
+          const c = clipSeg(toCam(e.a), toCam(e.b));
+          if (!c) continue;
+          const a = S(proj(c[0])), b = S(proj(c[1]));
+          if (g.vp) {
+            const v = S(g.vp);
+            for (const p of [a, b]) {
+              const cl = clipLine(p, v, -10, -10, W + 10, H + 10);
+              if (cl) { ctx.beginPath(); ctx.moveTo(...cl[0]); ctx.lineTo(...cl[1]); ctx.stroke(); }
+            }
+          } else {
+            // parallel to the picture plane: extend as parallel lines
+            const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy);
+            if (l < 1e-6) continue;
+            const ux = dx / l * 1e5, uy = dy / l * 1e5;
+            const cl = clipLine([a[0] - ux, a[1] - uy], [b[0] + ux, b[1] + uy], -10, -10, W + 10, H + 10);
+            if (cl) {
+              ctx.setLineDash([4, 4]);
+              ctx.beginPath(); ctx.moveTo(...cl[0]); ctx.lineTo(...cl[1]); ctx.stroke();
+              ctx.setLineDash([]);
+            }
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // faces
+    for (const fc of scene.faces) {
+      if (!fc.visible) continue;
+      const pts = clipPoly(fc.pts.map(toCam));
+      if (pts.length < 3) continue;
+      ctx.beginPath();
+      pts.forEach((c, i) => { const p = S(proj(c)); i ? ctx.lineTo(...p) : ctx.moveTo(...p); });
+      ctx.closePath();
+      ctx.fillStyle = fc.kind === 'cap' && scene.T ? css('--face-top') : css('--face');
+      ctx.fill();
+    }
+
+    // edges: hidden first (dashed), then visible
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const pass of [false, true]) {
+      scene.edges.forEach((e, i) => {
+        if (e.visible !== pass || !projEdges[i]) return;
+        const a = S(projEdges[i][0]), b = S(projEdges[i][1]);
+        ctx.strokeStyle = groupColor(e.group.id, gCount, pass ? 1 : 0.55);
+        ctx.lineWidth = pass ? 2.6 : 1.2;
+        ctx.setLineDash(pass ? [] : [5, 4]);
+        ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+      });
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // vanishing points & off-screen arrows
+    const m = 16;
+    let offCount = 0;
+    ctx.save();
+    ctx.font = '600 12px system-ui, sans-serif';
+    for (const g of vpGroups) {
+      const v = S(g.vp);
+      const col = groupColor(g.id, gCount, 1);
+      const label = 'VP' + (vpGroups.indexOf(g) + 1);
+      g.label = label;
+      const inside = v[0] >= m && v[0] <= W - m && v[1] >= m && v[1] <= H - m;
+      g.offscreen = !(g.vp[0] >= 0 && g.vp[0] <= W && g.vp[1] >= 0 && g.vp[1] <= H);
+      if (g.offscreen) offCount++;
+      ctx.fillStyle = col; ctx.strokeStyle = css('--canvas-bg');
+      if (inside) {
+        ctx.beginPath(); ctx.arc(v[0], v[1], 5.5, 0, Math.PI * 2); ctx.fill();
+        ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillText(label, v[0] + 8, v[1] - 8);
+      } else {
+        const dx = v[0] - cx, dy = v[1] - cyy;
+        const t = Math.min(Math.abs(dx) > 1e-9 ? (W / 2 - m) / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-9 ? (H / 2 - m) / Math.abs(dy) : Infinity);
+        const ax = cx + dx * t, ay = cyy + dy * t;
+        const ang = Math.atan2(dy, dx);
+        ctx.save();
+        ctx.translate(ax, ay); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, -7); ctx.lineTo(-2, 0); ctx.lineTo(-6, 7); ctx.closePath();
+        ctx.lineWidth = 2; ctx.stroke(); ctx.fill();
+        ctx.restore();
+        const tw = ctx.measureText(label).width;
+        let lx = ax - Math.cos(ang) * 22 - tw / 2, ly = ay - Math.sin(ang) * 18 + 4;
+        lx = Math.min(Math.max(lx, 4), W - tw - 4); ly = Math.min(Math.max(ly, 14), H - 6);
+        ctx.fillText(label, lx, ly);
+      }
+    }
+    ctx.restore();
+
+    lastInfo = { vpGroups, offCount, scale: s };
+  }
+
+  // ---------- top view ----------
+  function drawTop(scene) {
+    const cv = $('top');
+    const { ctx, W, H } = setupCanvas(cv, 1);
+    const gCount = scene.groups.length;
+    const pts = (scene.T ? scene.B.concat(scene.T) : scene.B);
+    const zMax = Math.max(...pts.map(p => p[2]), 1);
+    const L = zMax * 1.15 + 0.3;
+    const half = state.fov * DEG / 2;
+    const wx = L * Math.tan(Math.min(half, 80 * DEG));
+    const xs = pts.map(p => p[0]).concat([0, -wx, wx]);
+    const zs = pts.map(p => p[2]).concat([0, L]);
+    let x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+    // cap the wedge width so the shape stays readable
+    const shapeW = Math.max(...pts.map(p => Math.abs(p[0]))) * 2 + 2;
+    const span = Math.max(z1 - z0, Math.min(x1 - x0, Math.max(shapeW, (z1 - z0) * 1.6)));
+    const sc = (Math.min(W, H) - 40) / span;
+    const ox = W / 2, oz = H - 22 - (Math.max(0, -z0)) * sc;
+    const T = (x, z) => [ox + x * sc, oz - z * sc];
+
+    // grid every 1 m (or coarser)
+    let step = 1; while (step * sc < 18) step *= 2;
+    ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
+    for (let gx = Math.floor(-W / sc / step) * step; gx * sc < W; gx += step) {
+      const p = T(gx, 0); ctx.beginPath(); ctx.moveTo(p[0], 0); ctx.lineTo(p[0], H); ctx.stroke();
+    }
+    for (let gz = Math.floor(-(H) / sc / step) * step; gz * sc < H * 2; gz += step) {
+      const p = T(0, gz); ctx.beginPath(); ctx.moveTo(0, p[1]); ctx.lineTo(W, p[1]); ctx.stroke();
+    }
+
+    // field of view wedge
+    const far = L / Math.cos(Math.min(half, 89 * DEG));
+    const lp = T(-Math.sin(half) * far, Math.cos(half) * far), rp = T(Math.sin(half) * far, Math.cos(half) * far), c0 = T(0, 0);
+    ctx.fillStyle = css('--face');
+    ctx.beginPath(); ctx.moveTo(...c0); ctx.lineTo(...lp); ctx.lineTo(...rp); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(...lp); ctx.lineTo(...c0); ctx.lineTo(...rp); ctx.stroke();
+
+    // rays parallel to each edge group: where they leave the eye, the VP is found
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    for (const g of scene.groups) {
+      const d = g.dir;
+      const hl = Math.hypot(d[0], d[2]);
+      if (!g.vp || hl < 1e-6) continue;
+      const k = L / Math.max(d[2], 1e-9);
+      const end = T(d[0] * k, d[2] * k);
+      ctx.strokeStyle = groupColor(g.id, gCount, 0.6);
+      ctx.beginPath(); ctx.moveTo(...c0); ctx.lineTo(...end); ctx.stroke();
+    }
+    ctx.restore();
+
+    // shape
+    ctx.lineCap = 'round';
+    for (const e of scene.edges) {
+      ctx.strokeStyle = groupColor(e.group.id, gCount, 1);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(...T(e.a[0], e.a[2])); ctx.lineTo(...T(e.b[0], e.b[2])); ctx.stroke();
+    }
+
+    // camera
+    ctx.fillStyle = css('--fg');
+    ctx.beginPath(); ctx.arc(c0[0], c0[1], 5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('目（カメラ）', c0[0] + 9, c0[1] + 4);
+    ctx.fillStyle = css('--muted');
+    ctx.fillText('画角 ' + state.fov + '°・距離 ' + state.dist.toFixed(1) + ' m', 8, 16);
+  }
+
+  // ---------- true shape ----------
+  function drawShape(scene) {
+    const cv = $('shape');
+    const { ctx, W, H } = setupCanvas(cv, 1);
+    const gCount = scene.groups.length;
+    const n = state.n;
+    const r = Math.min(W, H) * 0.34;
+    const ox = W / 2, oy = H / 2 + 4;
+    const P = [];
+    for (let i = 0; i < n; i++) {
+      // seen from above, same orientation as the local polygon (front edge at the bottom)
+      const th = 2 * Math.PI * i / n + Math.PI / n - Math.PI / 2;
+      P.push([ox + r * Math.cos(th), oy - r * Math.sin(th)]);
+    }
+    ctx.fillStyle = css('--face');
+    ctx.beginPath(); P.forEach((p, i) => i ? ctx.lineTo(...p) : ctx.moveTo(...p)); ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    const baseEdges = scene.edges.filter(e => e.kind === 'base');
+    for (let i = 0; i < n; i++) {
+      ctx.strokeStyle = groupColor(baseEdges[i].group.id, gCount, 1);
+      ctx.beginPath(); ctx.moveTo(...P[i]); ctx.lineTo(...P[(i + 1) % n]); ctx.stroke();
+    }
+    // radius
+    ctx.strokeStyle = css('--muted'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(...P[0]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css('--fg');
+    ctx.beginPath(); ctx.arc(ox, oy, 2.5, 0, Math.PI * 2); ctx.fill();
+
+    const side = 2 * state.size * Math.sin(Math.PI / n);
+    const interior = 180 * (n - 2) / n;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(`正${n}角形・1辺 ${side.toFixed(2)} m・内角 ${interior.toFixed(1).replace(/\.0$/, '')}°`, 8, 16);
+    if (state.prism) ctx.fillText(`柱の長さ ${state.len.toFixed(2)} m（${n}角柱）`, 8, H - 8);
+    else ctx.fillText('同じ色の辺は互いに平行', 8, H - 8);
+  }
+
+  // ---------- explanation ----------
+  function explain(scene) {
+    const info = lastInfo;
+    const eye = state.eye, eps = 0.005;
+    const flat = !state.prism;
+    const lyingFlat = flat && state.tilt < 0.5;
+    let look, lookText;
+    if (eye > scene.maxY + eps) {
+      look = '見下ろす';
+      lookText = `目の高さ（${eye.toFixed(2)} m）が図形の一番高い所（${scene.maxY.toFixed(2)} m）より上にあるので、図形を<b>上から見下ろして</b>います。地平線は図形より上に来ます。`;
+    } else if (eye < scene.minY - eps) {
+      look = '見上げる';
+      lookText = `目の高さ（${eye.toFixed(2)} m）が図形の一番低い所（${scene.minY.toFixed(2)} m）より下にあるので、図形を<b>下から見上げて</b>います。地平線は図形より下に来ます。`;
+    } else if (lyingFlat) {
+      look = '真横';
+      lookText = '目の高さと図形の面の高さが同じなので、<b>真横から</b>見ています。図形は地平線に重なった1本の線に見えます。';
+    } else {
+      look = '真横';
+      lookText = 'アイレベル（地平線）が図形を横切っています。<b>真横の高さ</b>から見ているので、地平線より上の部分は見上げ、下の部分は見下ろす形になります。';
+    }
+    if (lyingFlat && look !== '真横') {
+      lookText += ' 目の高さと図形の高さの差が大きいほど、形は広く（つぶれずに）見えます。';
+    }
+
+    const groups = scene.groups;
+    const vpN = info.vpGroups.length;
+    const parN = groups.length - vpN;
+    let vpText = `平行な辺のグループは <b>${groups.length} 組</b>。そのうち消失点を持つのは ${vpN} 組なので、消失点は <b>${vpN} 個</b>です。`;
+    if (parN > 0) vpText += ` 残りの ${parN} 組は画面と平行なので消失点がなく、平行線のまま描きます。`;
+    if (vpN > 0) {
+      const allOnH = info.vpGroups.every(g => g.onHorizon);
+      const someOnH = info.vpGroups.some(g => g.onHorizon);
+      if (allOnH) vpText += ' 床と平行な線の消失点なので、すべてアイレベル（地平線）の上にあります。';
+      else if (someOnH) vpText += ' 床と平行な線の消失点は地平線上に、それ以外の消失点は地平線から外れた位置にできます。';
+      else vpText += ' 床と平行ではない線なので、消失点は地平線の上にはありません。';
+    }
+    if (state.tilt > 0.5 && vpN > 0) vpText += ' 傾けた面の辺の消失点は、その面の消失線（点線）の上に並びます。';
+    if (info.offCount > 0) vpText += state.showOut
+      ? ` うち ${info.offCount} 個は元の画面の外にあります（点線の枠が元の画面）。`
+      : ` うち ${info.offCount} 個は画面の外です（端の矢印の方向）。「画面の外も表示する」で確認できます。`;
+
+    let kind = '';
+    if (state.n === 4 && state.prism && vpN >= 1 && vpN <= 3) kind = ['一点透視', '二点透視', '三点透視'][vpN - 1];
+    else if (state.n === 4 && !state.prism && vpN >= 1 && vpN <= 2) kind = ['一点透視', '二点透視'][vpN - 1];
+
+    const chips = [`<span class="chip">${look}</span>`, `<span class="chip">消失点 ${vpN} 個</span>`];
+    if (kind) chips.push(`<span class="chip">${kind}</span>`);
+
+    const legend = groups.map(g => {
+      const sw = `<span class="sw" style="background:${groupColor(g.id, groups.length, 1)}"></span>`;
+      const what = g.hasSide ? '柱の縦の辺' : '辺';
+      const cnt = g.edges.length;
+      let where;
+      if (!g.vp) where = '画面と平行 → 消失点なし';
+      else where = `${g.label}${g.onHorizon ? '（地平線上）' : ''}${g.offscreen ? '・画面の外' : ''}`;
+      return `<li>${sw}<span>${what} ${cnt} 本：${where}</span></li>`;
+    }).join('');
+
+    $('explain').innerHTML =
+      `<h2>見え方</h2><div class="chips">${chips.join('')}</div>` +
+      `<p>${lookText}</p><p>${vpText}</p><ul class="legend">${legend}</ul>`;
+  }
+
+  // ---------- draw all ----------
+  let raf = 0;
+  function draw() {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const scene = buildScene(state);
+      drawView(scene);
+      drawTop(scene);
+      drawShape(scene);
+      explain(scene);
+    });
+  }
+
+  // ---------- drag to rotate ----------
+  let drag = null;
+  view.addEventListener('pointerdown', e => {
+    drag = { x: e.clientX, y: e.clientY, yaw: state.yaw, tilt: state.tilt };
+    view.setPointerCapture(e.pointerId);
+    view.classList.add('dragging');
+  });
+  view.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    state.yaw = Math.round((((drag.yaw - dx * 0.5) % 360) + 360) % 360);
+    state.tilt = Math.round(Math.min(90, Math.max(0, drag.tilt - dy * 0.4)));
+    syncControls();
+    draw();
+  });
+  const endDrag = () => { drag = null; view.classList.remove('dragging'); };
+  view.addEventListener('pointerup', endDrag);
+  view.addEventListener('pointercancel', endDrag);
+
+  new ResizeObserver(() => draw()).observe(document.querySelector('.layout'));
+  window.addEventListener('resize', draw);
+
+  applyTheme();
+  syncControls();
+  draw();
+})();
+</script>
+</body>
+</html>
